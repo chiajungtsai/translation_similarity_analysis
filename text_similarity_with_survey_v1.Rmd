@@ -1,0 +1,2058 @@
+---
+title: "text_similarity_with_survey_v1"
+author: "Chia-Jung Tsai"
+date: "2025-09-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(readxl)
+library(reshape2)
+library(tidyverse)
+library(grid)
+library(ggpubr)
+library(stringdist)
+library(ggrepel)
+
+```
+
+
+```{r}
+data_file <- read_excel("data/TransBack_translations_text_analysis.xlsx")
+
+```
+
+
+```{r}
+
+df_case <- data_file %>% filter(page=="deprivation_sensitivity"|page=="thrill_seeking")
+  
+```
+
+```{r}
+
+# --- Helpers ---------------------------------------------------------------
+
+jaccard_similarity <- function(a, b) {
+  a <- unique(a); b <- unique(b)
+  inter <- length(intersect(a, b))
+  uni   <- length(union(a, b))
+  if (uni == 0) return(NA_real_)
+  inter / uni
+}
+
+tokenize_simple <- function(txt) {
+  if (is.na(txt) || !nzchar(txt)) return(character(0))
+  txt <- tolower(txt)
+  txt <- gsub("[^a-zA-ZäöüÄÖÜß\\s]", " ", txt)  # keep letters (incl. German) + spaces
+  txt <- gsub("\\s+", " ", txt)
+  txt <- trimws(txt)
+  if (!nzchar(txt)) return(character(0))
+  strsplit(txt, " ", fixed = TRUE)[[1]]
+}
+
+# --- Columns to compare ----------------------------------------------------
+# Adjust the name of the official column if needed (your example had 'offical_translation')
+OFFICIAL_COL <- "offical_translation"
+
+p_cols <- c(
+  sprintf("P%02d", 1:16),
+  sprintf("P%02d", 21:36),
+  "ChatGPT"
+)
+
+# Keep only those that actually exist in your data (if Deepl not deleted)
+p_cols <- p_cols[p_cols %in% names(df_case)]
+
+# --- Compute Jaccard per row, per translator column -----------------------
+
+# Pre-tokenize the official text once (faster)
+official_tokens <- lapply(df_case[[OFFICIAL_COL]], tokenize_simple)
+
+# For each translator column, make a new Jaccard column
+for (col in p_cols) {
+  newcol <- paste0("jaccard_", col)
+  trans_tokens <- lapply(df_case[[col]], tokenize_simple)
+  df_case[[newcol]] <- mapply(
+    function(tok_off, tok_trans) jaccard_similarity(tok_off, tok_trans),
+    official_tokens, trans_tokens,
+    SIMPLIFY = TRUE
+  )
+}
+
+# Optional: quick progress print
+message(sprintf("Computed Jaccard for %d columns: %s",
+                length(p_cols), paste(p_cols, collapse = ", ")))
+
+
+```
+
+
+```{r}
+
+jaccard_data <- df_case %>% select(post_edit, order_item, item, 
+                                     scale, format, page,    
+                                     starts_with("jaccard"))
+
+
+jaccard_long <- melt(jaccard_data, id.vars = c("post_edit","order_item",
+                                               "item", "scale", "format", 
+                                               "page"), measure.vars = c("jaccard_P01", "jaccard_P02", "jaccard_P03", "jaccard_P04", 
+                                                                         "jaccard_P05","jaccard_P06", "jaccard_P07", "jaccard_P08", 
+                                                                         "jaccard_P09","jaccard_P10", "jaccard_P11", "jaccard_P12", 
+                                                                         "jaccard_P13","jaccard_P14", "jaccard_P15", "jaccard_P16", 
+                                                                         "jaccard_P21","jaccard_P22", "jaccard_P23", "jaccard_P24", 
+                                                                         "jaccard_P25","jaccard_P26", "jaccard_P27", "jaccard_P28", 
+                                                                         "jaccard_P29","jaccard_P30", "jaccard_P31", "jaccard_P32", 
+                                                                         "jaccard_P33","jaccard_P34", "jaccard_P35", "jaccard_P36", 
+                                                                         "jaccard_ChatGPT"))
+
+jaccard_long <- jaccard_long %>%
+  mutate(variable = str_remove(variable, "^jaccard_"))
+
+# ^ only for the start of the string 
+
+```
+
+
+
+#### plot jaccard similarity of deprivation_sensitivity in T1
+
+```{r}
+
+jaccard_depr <- jaccard_long %>% filter(page=="deprivation_sensitivity")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_depr <- jaccard_depr %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+```
+
+```{r}
+
+
+ ggplot(jaccard_depr, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+#### plot item with mean + SD
+```{r}
+
+jaccard_depr_item  <- jaccard_depr  %>% filter(format=="item")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_depr_item <- jaccard_depr_item %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+
+```
+
+
+
+
+```{r}
+
+ ggplot(jaccard_depr_item, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+
+#### plot item with mean + median + 0.25/0.75 quantile
+
+```{r, fig.height=4, fig.width=8}
+
+ggplot(jaccard_depr_item, aes(x = variable, y = value)) +
+   geom_point(alpha = 0.45, color="#F8766D",
+                position = position_jitter(width = 0.35, height = 0),
+                size = 2, stroke = 0) +
+  stat_summary(fun = mean, geom = "point", shape = 19, size = 1.7, color ="black") +
+  stat_summary(fun = median, geom = "point", shape = 25, size = 1.7,  fill = "steelblue") +
+  stat_summary(fun.data = function(x) {
+    data.frame(y = median(x),
+               ymin = quantile(x, 0.25),
+               ymax = quantile(x, 0.75))
+  },
+  geom = "errorbar", width = 0.3, color = "grey40") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ 
+
+
+
+```
+
+### rank with median (for only few data points, this makes more sense)
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_depr <- jaccard_depr %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+```
+
+```{r, fig.height=4, fig.width=8}
+
+jacaard_all_depr <- ggplot(jaccard_depr, aes(x = variable, y = value, color = format)) +
+  # raw points coloured by format
+  geom_point(alpha = 0.45,
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0) +
+
+  # Mean (black circle) – do NOT inherit color=format
+  stat_summary(fun = mean, geom = "point",
+               aes(x = variable, y = value, shape = "Mean"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # Median (black triangle)
+  stat_summary(fun = median, geom = "point",
+               aes(x = variable, y = value, shape = "Median"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # IQR error bars (gray line)
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(x = variable, y = value, linetype = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth = 0.4,
+    color = "grey40", inherit.aes = FALSE) +
+
+  # Legends/scales: color for 'format'; shape/linetype for 'Statistic'
+  scale_color_brewer(name = "Format", palette = "Set2") +
+  scale_shape_manual(name = "Statistic", values = c("Mean" = 19, "Median" = 25)) +
+  scale_linetype_manual(name = "ErrorBar", values = c("IQR" = 1)) +
+  guides(
+    shape    = guide_legend(order = 2, override.aes = list(color = "black", size = 3)),
+    linetype = guide_legend(order = 2, override.aes = list(color = "grey40", linewidth = 1))
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_depr_item_median <- jaccard_depr_item %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+```{r, fig.height=4, fig.width=8}
+
+jacaard_item_depr <- ggplot(jaccard_depr_item_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#66C2A5",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+ # labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+jaccard_depr_scale  <- jaccard_depr  %>% filter(format=="scale")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_depr_scale_median <- jaccard_depr_scale %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+
+```{r, fig.height=4, fig.width=8}
+
+
+jacaard_scale_depr <- ggplot(jaccard_depr_scale_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#FC8D62",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+```
+
+```{r}
+# library(ggpubr)
+
+jacaard_figure_depr <-ggarrange(jacaard_all_depr, jacaard_item_depr, jacaard_scale_depr, nrow = 3,  
+                          common.legend = T,legend = "right")
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+# library(grid)
+annotate_figure(jacaard_figure_depr, left = textGrob("Jaccard Similarity", rot = 90, vjust = 1, gp = gpar(cex = 1)),
+                    bottom = textGrob("Translator", gp = gpar(cex = 1)))
+
+```
+
+
+
+#### plot jaccard similarity of thrill-seeking in P2
+
+```{r}
+
+jaccard_thrill <- jaccard_long %>% filter(page=="thrill_seeking")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_thrill <- jaccard_thrill %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+```
+
+```{r, fig.height=5, fig.width=8}
+
+
+ ggplot(jaccard_thrill, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+#### plot item with mean + SD
+```{r}
+
+jaccard_thrill_item  <- jaccard_thrill  %>% filter(format=="item")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_thrill_item <- jaccard_thrill_item %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+
+```
+
+
+
+
+```{r}
+
+ ggplot(jaccard_thrill_item, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+
+#### plot item with mean + median + 0.25/0.75 quantile
+
+```{r, fig.height=4, fig.width=8}
+
+ggplot(jaccard_thrill_item, aes(x = variable, y = value)) +
+   geom_point(alpha = 0.45, color="#F8766D",
+                position = position_jitter(width = 0.35, height = 0),
+                size = 2, stroke = 0) +
+  stat_summary(fun = mean, geom = "point", shape = 19, size = 1.7, color ="black") +
+  stat_summary(fun = median, geom = "point", shape = 25, size = 1.7,  fill = "steelblue") +
+  stat_summary(fun.data = function(x) {
+    data.frame(y = median(x),
+               ymin = quantile(x, 0.25),
+               ymax = quantile(x, 0.75))
+  },
+  geom = "errorbar", width = 0.3, color = "grey40") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ 
+
+
+
+```
+
+### rank with median (for only few data points, this makes more sense)
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_thrill <- jaccard_thrill %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+```
+
+```{r, fig.height=4, fig.width=8}
+
+jacaard_all_thrill <- ggplot(jaccard_thrill, aes(x = variable, y = value, color = format)) +
+  # raw points coloured by format
+  geom_point(alpha = 0.45,
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0) +
+
+  # Mean (black circle) – do NOT inherit color=format
+  stat_summary(fun = mean, geom = "point",
+               aes(x = variable, y = value, shape = "Mean"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # Median (black triangle)
+  stat_summary(fun = median, geom = "point",
+               aes(x = variable, y = value, shape = "Median"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # IQR error bars (gray line)
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(x = variable, y = value, linetype = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth = 0.4,
+    color = "grey40", inherit.aes = FALSE) +
+
+  # Legends/scales: color for 'format'; shape/linetype for 'Statistic'
+  scale_color_brewer(name = "Format", palette = "Set2") +
+  scale_shape_manual(name = "Statistic", values = c("Mean" = 19, "Median" = 25)) +
+  scale_linetype_manual(name = "ErrorBar", values = c("IQR" = 1)) +
+  guides(
+    shape    = guide_legend(order = 2, override.aes = list(color = "black", size = 3)),
+    linetype = guide_legend(order = 2, override.aes = list(color = "grey40", linewidth = 1))
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_thrill_item_median <- jaccard_thrill_item %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+```{r, fig.height=4, fig.width=8}
+
+jacaard_item_thrill <- ggplot(jaccard_thrill_item_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#66C2A5",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+ # labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+jaccard_thrill_scale  <- jaccard_thrill  %>% filter(format=="scale")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+jaccard_thrill_scale_median <- jaccard_thrill_scale %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+
+```{r, fig.height=4, fig.width=8}
+
+
+jacaard_scale_thrill <- ggplot(jaccard_thrill_scale_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#FC8D62",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+```
+
+```{r}
+# library(ggpubr)
+
+jacaard_figure_thrill <-ggarrange(jacaard_all_thrill, jacaard_item_thrill, jacaard_scale_thrill, nrow = 3,  
+                          common.legend = T,legend = "right")
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+# library(grid)
+annotate_figure(jacaard_figure_thrill, left = textGrob("Jaccard Similarity", rot = 90, vjust = 1, gp = gpar(cex = 1)),
+                    bottom = textGrob("Translator", gp = gpar(cex = 1)))
+
+```
+
+
+```{r}
+# library(ggpubr)
+
+jacaard_figure_all <-ggarrange(jacaard_item_depr, jacaard_scale_depr, jacaard_item_thrill, jacaard_scale_thrill, nrow = 2, ncol = 2, labels = c("T1 - item", "T1 - scale", "P2 - item", "P2 - scale"),
+                          common.legend = T,legend = "right",
+                          font.label = list(size = 12))
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+# library(grid)
+annotate_figure(jacaard_figure_all, left = textGrob("Jaccard Similarity", rot = 90, vjust = 1, gp = gpar(cex = 1)),
+                    bottom = textGrob("Translator", gp = gpar(cex = 1)))
+
+```
+
+
+#####Levenshtein distance ####
+
+```{r}
+
+
+# library(stringdist)
+
+n <- nrow(data_file)
+data_file$levenshtein_P01 <- 0
+
+for (i in 1:n) {
+  original <- data_file$offical_translation[i]
+  P_01 <- data_file$P01[i]
+  
+  distance <- stringdist(original, P_01, method = "lv")
+  similarity <- 1 - (distance / (nchar(original) + nchar(P_01)))
+  
+  data_file$levenshtein_P01[i] <- similarity
+  msg <- paste("Status", i/3400*100, "%")
+  # Print message to console
+  print(msg)
+}
+
+```
+
+```{r}
+
+# Define official column (check spelling, you wrote "offical_translation" earlier)
+OFFICIAL_COL <- "offical_translation"
+
+# List of translation columns you want to compare
+p_cols <- c(
+  sprintf("P%02d", 2:16),
+  sprintf("P%02d", 21:36),
+  "ChatGPT"
+)
+
+
+# Keep only those that actually exist in your data
+p_cols <- p_cols[p_cols %in% names(data_file)]
+
+```
+
+```{r}
+
+# Helper function: normalized Levenshtein similarity
+lev_sim <- function(a, b) {
+  if (is.na(a) || is.na(b)) return(NA_real_)
+  d <- stringdist(a, b, method = "lv")
+  denom <- nchar(a) + nchar(b)
+  if (denom == 0) return(NA_real_)  # both empty
+  1 - d / denom
+}
+
+# Compute for each translation column
+for (col in p_cols) {
+  newcol <- paste0("levenshtein_", col)
+  data_file[[newcol]] <- mapply(
+    lev_sim,
+    data_file[[OFFICIAL_COL]],
+    data_file[[col]],
+    SIMPLIFY = TRUE
+  )
+  message("Finished ", col)
+}
+
+```
+
+```{r}
+
+#### select levenshtein items
+levenshtein_data <- data_file %>% select(post_edit, order_item, item, 
+                                         scale, format, page,    
+                                         starts_with("levenshtein"))
+
+
+
+```
+
+```{r}
+
+levenshtein_long <- melt(levenshtein_data, id.vars = c("post_edit","order_item",
+                                                       "item", "scale", "format", 
+                                                       "page"), measure.vars = c("levenshtein_P01", "levenshtein_P02", "levenshtein_P03", "levenshtein_P04", 
+                                                                                 "levenshtein_P05","levenshtein_P06", "levenshtein_P07", "levenshtein_P08", 
+                                                                                 "levenshtein_P09","levenshtein_P10", "levenshtein_P11", "levenshtein_P12", 
+                                                                                 "levenshtein_P13","levenshtein_P14", "levenshtein_P15", "levenshtein_P16", 
+                                                                                 "levenshtein_P21","levenshtein_P22", "levenshtein_P23", "levenshtein_P24", 
+                                                                                 "levenshtein_P25","levenshtein_P26", "levenshtein_P27", "levenshtein_P28", 
+                                                                                 "levenshtein_P29","levenshtein_P30", "levenshtein_P31", "levenshtein_P32", 
+                                                                                 "levenshtein_P33","levenshtein_P34", "levenshtein_P35", "levenshtein_P36", 
+                                                                                 "levenshtein_ChatGPT"))
+
+
+levenshtein_long <- levenshtein_long %>%
+  mutate(variable = str_remove(variable, "^levenshtein_"))
+
+```
+
+```{r}
+
+levenshtein_long <- levenshtein_long %>%
+  group_by(variable) %>%
+  mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(variable = reorder(variable, mean_value))
+
+
+```
+
+```{r}
+
+
+ggplot(levenshtein_long, aes(x = variable, y = value, colour = format)) +
+  # jittered raw points
+  geom_point(alpha = 0.4,
+             position = position_jitter(width = 0.3, height = 0),
+             size = 1.6, stroke = 0) +
+  # mean points
+  stat_summary(fun = mean,
+               geom = "point",
+               size = 1,
+               colour = "black",
+               position = position_dodge(width = 0.3)) +
+  # error bars: mean ± SD
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "errorbar",
+               width = 0.2,
+               colour = "black",
+               position = position_dodge(width = 0.3))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+```{r}
+
+
+levenshtein_item<- levenshtein_long %>% filter(format=='item')
+
+```
+
+```{r}
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_item <- levenshtein_item %>%
+  group_by(variable) %>%
+  mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(variable = reorder(variable, mean_value))
+
+ggplot(levenshtein_item, aes(x = variable, y = value, colour = format)) +
+  # jittered raw points
+  geom_point(alpha = 0.4,
+             position = position_jitter(width = 0.3, height = 0),
+             size = 1.6, stroke = 0) +
+  # mean points
+  stat_summary(fun = mean,
+               geom = "point",
+               size = 1,
+               colour = "black",
+               position = position_dodge(width = 0.3)) +
+  # error bars: mean ± SD
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "errorbar",
+               width = 0.2,
+               colour = "black",
+               position = position_dodge(width = 0.3))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+
+```{r}
+
+levenshtein_item %>% 
+     filter(is.na(value))
+
+```
+
+```{r}
+
+# A tibble: 9 × 9
+# post_edit order_item  item scale format page                    variable            value mean_value
+# <chr>          <dbl> <dbl> <dbl> <chr>  <chr>                   <fct>               <dbl>      <dbl>
+#  1 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P04        NA      0.686
+#  2 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P07        NA      0.684
+#  3 P2                 4     2     7 item   citizenship             levenshtein_P07        NA      0.684
+#  4 T1                 9     1     3 item   police                  levenshtein_P08        NA      0.717
+#  5 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P22        NA      0.730
+#  6 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P28        NA      0.760
+#  7 T1                 5     2     5 item   conscientiousness       levenshtein_P28        NA      0.760
+#  8 T1                10     1    11 item   police_prevent_crime    levenshtein_P36        NA      0.749
+#  9 T1                 8     1     5 item   doctor                  levenshtein_ChatGPT    NA      0.746
+
+# really some text missing in the translation
+
+
+```
+
+```{r}
+
+levenshtein_scale<- levenshtein_long %>% filter(format=='scale')
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_scale <- levenshtein_scale %>%
+  group_by(variable) %>%
+  mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(variable = reorder(variable, mean_value))
+
+```
+
+```{r}
+
+ggplot(levenshtein_scale, aes(x = variable, y = value, colour = format)) +
+  # jittered raw points
+  geom_point(alpha = 0.4,
+             position = position_jitter(width = 0.3, height = 0),
+             size = 1.6, stroke = 0) +
+  # mean points
+  stat_summary(fun = mean,
+               geom = "point",
+               size = 1,
+               colour = "black",
+               position = position_dodge(width = 0.3)) +
+  # error bars: mean ± SD
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "errorbar",
+               width = 0.2,
+               colour = "black",
+               position = position_dodge(width = 0.3))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+
+```
+
+##### levenshtein for T1: deprivation sensitivity
+
+
+```{r}
+
+levenshtein_depr <- levenshtein_long %>% filter(page=="deprivation_sensitivity")
+
+```
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_depr <- levenshtein_depr %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+```
+
+```{r}
+
+
+ ggplot(levenshtein_depr, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+#### plot item with mean + SD
+```{r}
+
+levenshtein_depr_item  <- levenshtein_depr  %>% filter(format=="item")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_depr_item <- levenshtein_depr_item %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+
+```
+
+
+
+
+```{r}
+
+ ggplot(levenshtein_depr_item, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+
+#### plot item with mean + median + 0.25/0.75 quantile
+
+```{r, fig.height=4, fig.width=8}
+
+ggplot(levenshtein_depr_item, aes(x = variable, y = value)) +
+   geom_point(alpha = 0.45, color="#F8766D",
+                position = position_jitter(width = 0.35, height = 0),
+                size = 2, stroke = 0) +
+  stat_summary(fun = mean, geom = "point", shape = 19, size = 1.7, color ="black") +
+  stat_summary(fun = median, geom = "point", shape = 25, size = 1.7,  fill = "steelblue") +
+  stat_summary(fun.data = function(x) {
+    data.frame(y = median(x),
+               ymin = quantile(x, 0.25),
+               ymax = quantile(x, 0.75))
+  },
+  geom = "errorbar", width = 0.3, color = "grey40") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ 
+
+
+
+```
+
+### rank with median (for only few data points, this makes more sense)
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_depr <- levenshtein_depr %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+```
+
+```{r, fig.height=4, fig.width=8}
+
+levenshtein_all_depr <- ggplot(levenshtein_depr, aes(x = variable, y = value, color = format)) +
+  # raw points coloured by format
+  geom_point(alpha = 0.45,
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0) +
+
+  # Mean (black circle) – do NOT inherit color=format
+  stat_summary(fun = mean, geom = "point",
+               aes(x = variable, y = value, shape = "Mean"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # Median (black triangle)
+  stat_summary(fun = median, geom = "point",
+               aes(x = variable, y = value, shape = "Median"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # IQR error bars (gray line)
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(x = variable, y = value, linetype = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth = 0.4,
+    color = "grey40", inherit.aes = FALSE) +
+
+  # Legends/scales: color for 'format'; shape/linetype for 'Statistic'
+  scale_color_brewer(name = "Format", palette = "Set2") +
+  scale_shape_manual(name = "Statistic", values = c("Mean" = 19, "Median" = 25)) +
+  scale_linetype_manual(name = "ErrorBar", values = c("IQR" = 1)) +
+  guides(
+    shape    = guide_legend(order = 2, override.aes = list(color = "black", size = 3)),
+    linetype = guide_legend(order = 2, override.aes = list(color = "grey40", linewidth = 1))
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_depr_item_median <- levenshtein_depr_item %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+```{r, fig.height=4, fig.width=8}
+
+levenshtein_item_depr <- ggplot(levenshtein_depr_item_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#66C2A5",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+ # labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+levenshtein_depr_scale  <- levenshtein_depr  %>% filter(format=="scale")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_depr_scale_median <- levenshtein_depr_scale %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+
+```{r, fig.height=4, fig.width=8}
+
+
+levenshtein_scale_depr <- ggplot(levenshtein_depr_scale_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#FC8D62",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+```
+
+```{r}
+# library(ggpubr)
+
+levenshtein_figure_depr <-ggarrange(levenshtein_all_depr, levenshtein_item_depr, levenshtein_scale_depr, nrow = 3,  
+                          common.legend = T,legend = "right")
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+# library(grid)
+annotate_figure(levenshtein_figure_depr, left = textGrob("Jaccard Similarity", rot = 90, vjust = 1, gp = gpar(cex = 1)),
+                    bottom = textGrob("Translator", gp = gpar(cex = 1)))
+
+```
+
+
+##### levenshtein for P2: Thrill seeking
+
+
+```{r}
+
+levenshtein_thrill <- levenshtein_long %>% filter(page=="thrill_seeking")
+
+```
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_thrill <- levenshtein_thrill %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+```
+
+```{r}
+
+
+ ggplot(levenshtein_thrill, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+#### plot item with mean + SD
+```{r}
+
+levenshtein_thrill_item  <- levenshtein_thrill  %>% filter(format=="item")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_thrill_item <- levenshtein_thrill_item %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+
+```
+
+
+
+
+```{r}
+
+ ggplot(levenshtein_thrill_item, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap(~page)
+ 
+
+
+```
+
+
+#### plot item with mean + median + 0.25/0.75 quantile
+
+```{r, fig.height=4, fig.width=8}
+
+ggplot(levenshtein_thrill_item, aes(x = variable, y = value)) +
+   geom_point(alpha = 0.45, color="#F8766D",
+                position = position_jitter(width = 0.35, height = 0),
+                size = 2, stroke = 0) +
+  stat_summary(fun = mean, geom = "point", shape = 19, size = 1.7, color ="black") +
+  stat_summary(fun = median, geom = "point", shape = 25, size = 1.7,  fill = "steelblue") +
+  stat_summary(fun.data = function(x) {
+    data.frame(y = median(x),
+               ymin = quantile(x, 0.25),
+               ymax = quantile(x, 0.75))
+  },
+  geom = "errorbar", width = 0.3, color = "grey40") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ 
+
+
+
+```
+
+### rank with median (for only few data points, this makes more sense)
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_thrill <- levenshtein_thrill %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+```
+
+```{r, fig.height=4, fig.width=8}
+
+levenshtein_all_thrill <- ggplot(levenshtein_thrill, aes(x = variable, y = value, color = format)) +
+  # raw points coloured by format
+  geom_point(alpha = 0.45,
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0) +
+
+  # Mean (black circle) – do NOT inherit color=format
+  stat_summary(fun = mean, geom = "point",
+               aes(x = variable, y = value, shape = "Mean"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # Median (black triangle)
+  stat_summary(fun = median, geom = "point",
+               aes(x = variable, y = value, shape = "Median"),
+               size = 2, color = "black", inherit.aes = FALSE) +
+
+  # IQR error bars (gray line)
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(x = variable, y = value, linetype = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth = 0.4,
+    color = "grey40", inherit.aes = FALSE) +
+
+  # Legends/scales: color for 'format'; shape/linetype for 'Statistic'
+  scale_color_brewer(name = "Format", palette = "Set2") +
+  scale_shape_manual(name = "Statistic", values = c("Mean" = 19, "Median" = 25)) +
+  scale_linetype_manual(name = "ErrorBar", values = c("IQR" = 1)) +
+  guides(
+    shape    = guide_legend(order = 2, override.aes = list(color = "black", size = 3)),
+    linetype = guide_legend(order = 2, override.aes = list(color = "grey40", linewidth = 1))
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_thrill_item_median <- levenshtein_thrill_item %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+```{r, fig.height=4, fig.width=8}
+
+levenshtein_item_thrill <- ggplot(levenshtein_thrill_item_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#66C2A5",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+ # labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+
+```
+
+
+```{r}
+
+levenshtein_thrill_scale  <- levenshtein_thrill  %>% filter(format=="scale")
+
+```
+
+```{r}
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_thrill_scale_median <- levenshtein_thrill_scale %>%
+     group_by(variable) %>%
+     mutate(median_value = median(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, median_value))
+ 
+
+```
+
+
+```{r, fig.height=4, fig.width=8}
+
+
+levenshtein_scale_thrill <- ggplot(levenshtein_thrill_scale_median, aes(x = variable, y = value)) +
+  # raw points (no legend)
+  geom_point(alpha = 0.45, color = "#FC8D62",
+             position = position_jitter(width = 0.35, height = 0),
+             size = 2, stroke = 0, show.legend = FALSE) +
+
+  # mean & median points: map both color and shape to labels
+  stat_summary(fun = mean,   geom = "point",
+               aes(color = "Mean",   shape = "Mean"),   size = 1.9) +
+  stat_summary(fun = median, geom = "point",
+               aes(color = "Median", shape = "Median"), size = 1.9) +
+
+  # IQR error bars: only color is mapped
+  stat_summary(fun.data = function(x) {
+      data.frame(y = median(x),
+                 ymin = quantile(x, 0.25),
+                 ymax = quantile(x, 0.75))
+    },
+    aes(color = "IQR"),
+    geom = "errorbar", width = 0.4, linewidth=0.4) +
+
+  # one combined legend from 'color'
+  scale_color_manual(
+    name   = "Statistic",
+    values = c("IQR" = "grey40", "Mean" = "black", "Median" = "black"),
+    breaks = c("IQR", "Mean", "Median")
+  ) +
+  scale_shape_manual(values = c("Mean" = 19, "Median" = 25)) +
+  guides(
+    shape = "none",  # hide the separate shape legend
+    color = guide_legend(
+      override.aes = list(
+        linetype = c(1, 0, 0),   # line for IQR, none for points
+        shape    = c(NA, 19, 25) # show circle for Mean, triangle for Median
+      )
+    )
+  ) +
+#  labs(x = "Translator", y = "Jaccard Similarity") +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+```
+
+```{r}
+# library(ggpubr)
+
+levenshtein_figure_thrill <-ggarrange(levenshtein_all_thrill, levenshtein_item_thrill, levenshtein_scale_thrill, nrow = 3,  
+                          common.legend = T,legend = "right")
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+# library(grid)
+annotate_figure(levenshtein_figure_thrill, left = textGrob("Levenshtein Similarity", rot = 90, vjust = 1, gp = gpar(cex = 1)),
+                    bottom = textGrob("Translator", gp = gpar(cex = 1)))
+
+```
+
+
+```{r}
+# library(ggpubr)
+
+levenshtein_figure_all <-ggarrange(levenshtein_item_depr, levenshtein_scale_depr, levenshtein_item_thrill, levenshtein_scale_thrill, nrow = 2, ncol = 2, labels = c("T1 - item", "T1 - scale", "P2 - item", "P2 - scale"),
+                          common.legend = T,legend = "right",
+                          font.label = list(size = 12))
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+# library(grid)
+annotate_figure(levenshtein_figure_all, left = textGrob("Levenshtein Similarity", rot = 90, vjust = 1, gp = gpar(cex = 1)),
+                    bottom = textGrob("Translator", gp = gpar(cex = 1)))
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+
+
+#### scatter plot 
+
+```{r}
+
+#### jaccard
+
+
+jaccard_depr_item_agr <- jaccard_depr_item %>% 
+  group_by(variable)%>%
+  summarise(jaccard_similarity=mean(value, na.rm=T))%>%
+  mutate(format="item",
+         item="T1-Deprivation Sensitivity")
+
+jaccard_thrill_item_agr <- jaccard_thrill_item %>% 
+  group_by(variable)%>%
+  summarise(jaccard_similarity = mean(value, na.rm=T))%>%
+  mutate(format="item",
+         item="P2-Thrill Seeking")
+
+
+jaccard_depr_scale_agr <- jaccard_depr_scale %>% 
+  group_by(variable)%>%
+  summarise(jaccard_similarity = mean(value, na.rm=T))%>%
+  mutate(format="scale",
+         item ="T1-Deprivation Sensitivity")
+
+jaccard_thrill_scale_agr <- jaccard_thrill_scale %>% 
+  group_by(variable)%>%
+  summarise(jaccard_similarity = mean(value, na.rm=T))%>%
+  mutate(format="scale",
+         item="P2-Thrill Seeking")
+
+
+#### levenshtein
+
+levenshtein_depr_item_agr <- levenshtein_depr_item %>% 
+  group_by(variable)%>%
+  summarise(levenshtein_similarity=mean(value, na.rm=T))%>%
+  mutate(format="item",
+         item="T1-Deprivation Sensitivity")
+
+levenshtein_thrill_item_agr <- levenshtein_thrill_item %>% 
+  group_by(variable)%>%
+  summarise(levenshtein_similarity=mean(value, na.rm=T))%>%
+  mutate(format="item",
+         item="P2-Thrill Seeking")
+
+levenshtein_depr_scale_agr <- levenshtein_depr_scale %>% 
+  group_by(variable)%>%
+  summarise(levenshtein_similarity=mean(value, na.rm=T))%>%
+  mutate(format="scale",
+         item="T1-Deprivation Sensitivity")
+
+levenshtein_thrill_scale_agr <- levenshtein_thrill_scale %>% 
+  group_by(variable)%>%
+  summarise(levenshtein_similarity=mean(value, na.rm=T))%>%
+  mutate(format="scale",
+         item="P2-Thrill Seeking")
+
+
+depr_item_agr <- left_join(jaccard_depr_item_agr, levenshtein_depr_item_agr) 
+depr_scale_agr <- left_join(jaccard_depr_scale_agr, levenshtein_depr_scale_agr) 
+
+thrill_item_agr <- left_join(jaccard_thrill_item_agr, levenshtein_thrill_item_agr) 
+thrill_scale_agr <- left_join(jaccard_thrill_scale_agr, levenshtein_thrill_scale_agr) 
+
+
+```
+
+
+```{r}
+
+all_similarity <- rbind(depr_item_agr,depr_scale_agr, thrill_item_agr, thrill_scale_agr)
+
+all_similarity <- all_similarity %>%
+  mutate(
+    group = case_when(
+      grepl("^P0?[1-9]$|^P1[0-6]$", variable) ~ "Professional translator",
+      grepl("^P2[1-9]$|^P3[0-6]$", variable) ~ "Social scientist",
+      variable == "ChatGPT" ~ "ChatGPT",
+      TRUE ~ "Other"
+    )
+  )
+
+
+```
+
+
+```{r, fig.height=8, fig.width=12}
+
+#library(ggrepel)
+
+ggplot(all_similarity, aes(x = jaccard_similarity, y = levenshtein_similarity, color=group, label = variable)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_text_repel()+
+  # geom_smooth(method = "lm", se = FALSE)+
+  theme_bw()+
+  facet_grid(format~item)
+  
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+
+
+
+
+

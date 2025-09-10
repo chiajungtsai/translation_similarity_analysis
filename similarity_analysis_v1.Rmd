@@ -1,0 +1,611 @@
+---
+title: "similarity_analysis_v1"
+author: "Chia-Jung Tsai"
+date: "2025-09-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(readxl)
+library(reshape2)
+library(tidyverse)
+
+```
+
+
+```{r}
+
+data_file <- read_excel("TransBack_translations_text_analysis.xlsx")
+
+
+```
+
+
+####JACARD SIMILARITY P01 VS Official Translation 
+
+```{r}
+
+jaccard_similarity <- function(a, b) {
+  a <- unique(a)
+  b <- unique(b)
+  intersection <- length(intersect(a, b))
+  union <- length(union(a, b))
+  return(intersection / union)
+}
+
+n <- nrow(data_file)
+data_file$jaccard_similarity_P01 <- 0
+
+for (i in 1:n) {
+  official <- strsplit(tolower(data_file$offical_translation[i]), " ")[[1]]
+  P_01 <- strsplit(tolower(data_file$P01[i]), " ")[[1]]
+  
+  similarity <- jaccard_similarity(official, P_01)
+  data_file$jaccard_similarity_P01[i] <- similarity
+  msg <- paste("Status", i/3400*100, "%")
+  # Print message to console
+  print(msg)
+}
+
+
+```
+
+#### JACARD SIMILARITY P01-P36, chatgpt VS Official Translation  
+```{r}
+
+# --- Helpers ---------------------------------------------------------------
+
+jaccard_similarity <- function(a, b) {
+  a <- unique(a); b <- unique(b)
+  inter <- length(intersect(a, b))
+  uni   <- length(union(a, b))
+  if (uni == 0) return(NA_real_)
+  inter / uni
+}
+
+tokenize_simple <- function(txt) {
+  if (is.na(txt) || !nzchar(txt)) return(character(0))
+  txt <- tolower(txt)
+  txt <- gsub("[^a-zA-ZäöüÄÖÜß\\s]", " ", txt)  # keep letters (incl. German) + spaces
+  txt <- gsub("\\s+", " ", txt)
+  txt <- trimws(txt)
+  if (!nzchar(txt)) return(character(0))
+  strsplit(txt, " ", fixed = TRUE)[[1]]
+}
+
+# --- Columns to compare ----------------------------------------------------
+# Adjust the name of the official column if needed (your example had 'offical_translation')
+OFFICIAL_COL <- "offical_translation"
+
+p_cols <- c(
+  sprintf("P%02d", 1:16),
+  sprintf("P%02d", 21:36),
+  "ChatGPT"
+)
+
+# Keep only those that actually exist in your data (if Deepl not deleted)
+p_cols <- p_cols[p_cols %in% names(data_file)]
+
+# --- Compute Jaccard per row, per translator column -----------------------
+
+# Pre-tokenize the official text once (faster)
+official_tokens <- lapply(data_file[[OFFICIAL_COL]], tokenize_simple)
+
+# For each translator column, make a new Jaccard column
+for (col in p_cols) {
+  newcol <- paste0("jaccard_", col)
+  trans_tokens <- lapply(data_file[[col]], tokenize_simple)
+  data_file[[newcol]] <- mapply(
+    function(tok_off, tok_trans) jaccard_similarity(tok_off, tok_trans),
+    official_tokens, trans_tokens,
+    SIMPLIFY = TRUE
+  )
+}
+
+# Optional: quick progress print
+message(sprintf("Computed Jaccard for %d columns: %s",
+                length(p_cols), paste(p_cols, collapse = ", ")))
+
+
+
+```
+
+
+#### select jaccard items and reshape into the long format
+
+```{r}
+
+
+
+jaccard_data <- data_file %>% select(post_edit, order_item, item, 
+                                     scale, format, page,    
+                                     starts_with("jaccard"))
+
+
+jaccard_long <- melt(jaccard_data, id.vars = c("post_edit","order_item",
+                                               "item", "scale", "format", 
+                                               "page"), measure.vars = c("jaccard_P01", "jaccard_P02", "jaccard_P03", "jaccard_P04", 
+                                                                         "jaccard_P05","jaccard_P06", "jaccard_P07", "jaccard_P08", 
+                                                                         "jaccard_P09","jaccard_P10", "jaccard_P11", "jaccard_P12", 
+                                                                         "jaccard_P13","jaccard_P14", "jaccard_P15", "jaccard_P16", 
+                                                                         "jaccard_P21","jaccard_P22", "jaccard_P23", "jaccard_P24", 
+                                                                         "jaccard_P25","jaccard_P26", "jaccard_P27", "jaccard_P28", 
+                                                                         "jaccard_P29","jaccard_P30", "jaccard_P31", "jaccard_P32", 
+                                                                         "jaccard_P33","jaccard_P34", "jaccard_P35", "jaccard_P36", 
+                                                                         "jaccard_ChatGPT"))
+
+
+
+```
+
+
+#### test for plot P01
+
+```{r}
+
+jacc_P01<- jaccard_long %>% filter(variable=='jaccard_P01')
+
+a <- ggplot(jacc_P01, aes(variable, value)) +
+  geom_boxplot(colour = "grey50") +
+  geom_point(aes(colour = format), alpha = .4, position = position_jitter(width = .30, height = 0), 
+             size = 1.6, stroke = 0)+
+  theme_minimal()
+
+```
+
+
+#### test for plot ChatGPT
+
+```{r}
+
+jacc_ChatGPT<- jaccard_long %>% filter(variable=='jaccard_ChatGPT')
+
+b <- ggplot(jacc_ChatGPT, aes(variable, value)) +
+  geom_boxplot(colour = "grey50") +
+  geom_point(aes(colour = format), alpha = .4, position = position_jitter(width = .30, height = 0), size = 1.6, stroke = 0)+
+  theme_minimal()
+
+```
+
+
+#### combine P01 and ChatGPT
+
+```{r}
+
+library(patchwork)
+a + b
+
+
+```
+
+#### plot P01 - P36 ChatGPT boxplot with jitter
+
+```{r, fig.width=15}
+
+ggplot(jaccard_long, aes(variable, value)) +
+  geom_boxplot(colour = "grey50") +
+  geom_point(aes(colour = format), alpha = .4, position = position_jitter(width = .12, height = 0), size = 1.6, stroke = 0) 
+
+
+```
+
+#### plot P01 - P36 ChatGPT, point+SD with jitter, reorder with mean 
+
+```{r, fig.width=12, fig.height=5}
+
+ # Reorder factor levels of variable by its mean (across all formats)
+jaccard_long <- jaccard_long %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+ ggplot(jaccard_long, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ 
+
+```
+
+#### plot item text of P01 - P36 ChatGPT, point+SD with jitter, reorder with mean 
+
+```{r, fig.width=12, fig.height=5}
+
+jacc_item<- jaccard_long %>% filter(format=='item')
+
+
+# Reorder factor levels of variable by its mean (across all formats)
+jacc_item <- jacc_item %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+ ggplot(jacc_item, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+#### plot scale text of P01 - P36 ChatGPT, point+SD with jitter, reorder with mean 
+
+```{r,  fig.width=12, fig.height=5}
+jacc_scale<- jaccard_long %>% filter(format=='scale')
+
+# Reorder factor levels of variable by its mean (across all formats)
+jacc_scale <- jacc_scale %>%
+     group_by(variable) %>%
+     mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+     ungroup() %>%
+     mutate(variable = reorder(variable, mean_value))
+ 
+ ggplot(jacc_scale, aes(x = variable, y = value, colour = format)) +
+     # jittered raw points
+     geom_point(alpha = 0.4,
+                position = position_jitter(width = 0.3, height = 0),
+                size = 1.6, stroke = 0) +
+     # mean points
+     stat_summary(fun = mean,
+                  geom = "point",
+                  size = 1,
+                  colour = "black",
+                  position = position_dodge(width = 0.3)) +
+     # error bars: mean ± SD
+     stat_summary(fun.data = mean_sdl,
+                  fun.args = list(mult = 1),
+                  geom = "errorbar",
+                  width = 0.2,
+                  colour = "black",
+                  position = position_dodge(width = 0.3))+
+     theme_minimal()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+
+```{r}
+
+#####Levenshtein distance ####
+library(stringdist)
+
+n <- nrow(data_file)
+data_file$levenshtein_P01 <- 0
+
+for (i in 1:n) {
+  original <- data_file$offical_translation[i]
+  P_01 <- data_file$P01[i]
+  
+  distance <- stringdist(original, P_01, method = "lv")
+  similarity <- 1 - (distance / (nchar(original) + nchar(P_01)))
+  
+  data_file$levenshtein_P01[i] <- similarity
+  msg <- paste("Status", i/3400*100, "%")
+  # Print message to console
+  print(msg)
+}
+
+
+```
+
+
+
+```{r}
+
+# Define official column (check spelling, you wrote "offical_translation" earlier)
+OFFICIAL_COL <- "offical_translation"
+
+# List of translation columns you want to compare
+p_cols <- c(
+  sprintf("P%02d", 2:16),
+  sprintf("P%02d", 21:36),
+  "ChatGPT"
+)
+
+
+
+# Keep only those that actually exist in your data
+p_cols <- p_cols[p_cols %in% names(data_file)]
+
+
+
+
+# Helper function: normalized Levenshtein similarity
+lev_sim <- function(a, b) {
+  if (is.na(a) || is.na(b)) return(NA_real_)
+  d <- stringdist(a, b, method = "lv")
+  denom <- nchar(a) + nchar(b)
+  if (denom == 0) return(NA_real_)  # both empty
+  1 - d / denom
+}
+
+# Compute for each translation column
+for (col in p_cols) {
+  newcol <- paste0("levenshtein_", col)
+  data_file[[newcol]] <- mapply(
+    lev_sim,
+    data_file[[OFFICIAL_COL]],
+    data_file[[col]],
+    SIMPLIFY = TRUE
+  )
+  message("Finished ", col)
+}
+
+
+```
+
+
+
+
+```{r}
+
+
+#### select levenshtein items
+levenshtein_data <- data_file %>% select(post_edit, order_item, item, 
+                                         scale, format, page,    
+                                         starts_with("levenshtein"))
+
+
+```
+
+
+```{r}
+
+levenshtein_long <- melt(levenshtein_data, id.vars = c("post_edit","order_item",
+                                                       "item", "scale", "format", 
+                                                       "page"), measure.vars = c("levenshtein_P01", "levenshtein_P02", "levenshtein_P03", "levenshtein_P04", 
+                                                                                 "levenshtein_P05","levenshtein_P06", "levenshtein_P07", "levenshtein_P08", 
+                                                                                 "levenshtein_P09","levenshtein_P10", "levenshtein_P11", "levenshtein_P12", 
+                                                                                 "levenshtein_P13","levenshtein_P14", "levenshtein_P15", "levenshtein_P16", 
+                                                                                 "levenshtein_P21","levenshtein_P22", "levenshtein_P23", "levenshtein_P24", 
+                                                                                 "levenshtein_P25","levenshtein_P26", "levenshtein_P27", "levenshtein_P28", 
+                                                                                 "levenshtein_P29","levenshtein_P30", "levenshtein_P31", "levenshtein_P32", 
+                                                                                 "levenshtein_P33","levenshtein_P34", "levenshtein_P35", "levenshtein_P36", 
+                                                                                 "levenshtein_ChatGPT"))
+
+
+
+```
+
+
+```{r}
+
+levenshtein_long <- levenshtein_long %>%
+  group_by(variable) %>%
+  mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(variable = reorder(variable, mean_value))
+
+
+```
+
+
+```{r}
+
+ggplot(levenshtein_long, aes(x = variable, y = value, colour = format)) +
+  # jittered raw points
+  geom_point(alpha = 0.4,
+             position = position_jitter(width = 0.3, height = 0),
+             size = 1.6, stroke = 0) +
+  # mean points
+  stat_summary(fun = mean,
+               geom = "point",
+               size = 1,
+               colour = "black",
+               position = position_dodge(width = 0.3)) +
+  # error bars: mean ± SD
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "errorbar",
+               width = 0.2,
+               colour = "black",
+               position = position_dodge(width = 0.3))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+```
+
+
+```{r}
+
+levenshtein_item<- levenshtein_long %>% filter(format=='item')
+
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_item <- levenshtein_item %>%
+  group_by(variable) %>%
+  mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(variable = reorder(variable, mean_value))
+
+```
+
+
+```{r}
+
+ggplot(levenshtein_item, aes(x = variable, y = value, colour = format)) +
+  # jittered raw points
+  geom_point(alpha = 0.4,
+             position = position_jitter(width = 0.3, height = 0),
+             size = 1.6, stroke = 0) +
+  # mean points
+  stat_summary(fun = mean,
+               geom = "point",
+               size = 1,
+               colour = "black",
+               position = position_dodge(width = 0.3)) +
+  # error bars: mean ± SD
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "errorbar",
+               width = 0.2,
+               colour = "black",
+               position = position_dodge(width = 0.3))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+```{r}
+
+levenshtein_item %>% 
+     filter(is.na(value))
+
+# A tibble: 9 × 9
+# post_edit order_item  item scale format page                    variable            value mean_value
+# <chr>          <dbl> <dbl> <dbl> <chr>  <chr>                   <fct>               <dbl>      <dbl>
+#  1 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P04        NA      0.686
+#  2 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P07        NA      0.684
+#  3 P2                 4     2     7 item   citizenship             levenshtein_P07        NA      0.684
+#  4 T1                 9     1     3 item   police                  levenshtein_P08        NA      0.717
+#  5 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P22        NA      0.730
+#  6 T1                 3     4     7 item   deprivation_sensitivity levenshtein_P28        NA      0.760
+#  7 T1                 5     2     5 item   conscientiousness       levenshtein_P28        NA      0.760
+#  8 T1                10     1    11 item   police_prevent_crime    levenshtein_P36        NA      0.749
+#  9 T1                 8     1     5 item   doctor                  levenshtein_ChatGPT    NA      0.746
+
+# really some text missing in the translation
+
+
+
+```
+
+
+
+```{r}
+
+levenshtein_scale<- levenshtein_long %>% filter(format=='scale')
+
+# Reorder factor levels of variable by its mean (across all formats)
+levenshtein_scale <- levenshtein_scale %>%
+  group_by(variable) %>%
+  mutate(mean_value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(variable = reorder(variable, mean_value))
+
+```
+
+
+
+```{r}
+
+ggplot(levenshtein_scale, aes(x = variable, y = value, colour = format)) +
+  # jittered raw points
+  geom_point(alpha = 0.4,
+             position = position_jitter(width = 0.3, height = 0),
+             size = 1.6, stroke = 0) +
+  # mean points
+  stat_summary(fun = mean,
+               geom = "point",
+               size = 1,
+               colour = "black",
+               position = position_dodge(width = 0.3)) +
+  # error bars: mean ± SD
+  stat_summary(fun.data = mean_sdl,
+               fun.args = list(mult = 1),
+               geom = "errorbar",
+               width = 0.2,
+               colour = "black",
+               position = position_dodge(width = 0.3))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+
+
+```{r}
+
+
+## When they disagree
+
+Jaccard high, Levenshtein low
+→ Same words, but different order.
+Example: "Haben Sie jemals geraucht?" vs. "Geraucht haben Sie jemals?"
+
+Jaccard low, Levenshtein high
+→ Different word roots but structurally similar.
+Example: "Sind Sie zufrieden mit Ihrer Gesundheit?" vs. "Sind Sie glücklich mit Ihrer Gesundheit?"
+
+Both high
+→ Almost identical translations.
+
+Both low
+→ Very different texts.
+
+
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+
+
+

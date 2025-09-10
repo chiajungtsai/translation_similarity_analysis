@@ -1,0 +1,82 @@
+---
+title: "text_similarity_with_survey_v2"
+author: "Chia-Jung Tsai"
+date: "2025-09-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(tidyverse)
+
+```
+
+```{r}
+
+all_distance <- read_excel("data/all_distance.xlsx") %>%
+  select(translater_label, std_mean_dist, type, scale, ps, expt_group, anony_label) %>%
+  filter(str_starts(type, "deprivation") | str_starts(type, "thrill"))
+
+```
+
+
+```{r}
+
+all_distance <- all_distance %>% filter(translater_label != "official_translation")
+
+```
+
+
+```{r}
+
+jaccard_long <- read_excel("data/jaccard_long.xlsx")%>%
+  filter(page=="deprivation_sensitivity"|page=="thrill_seeking")
+levenshtein_long <- read_excel("data/levenshtein_long.xlsx")%>%
+  filter(page=="deprivation_sensitivity"|page=="thrill_seeking")
+
+```
+
+
+```{r}
+
+jaccard_long %>% 
+  group_by(variable)%>%
+  mutate( =first())
+
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
