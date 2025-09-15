@@ -1,9 +1,5 @@
-
-setwd('')
-
-
 # library(readxl)
- data_file <- read_excel("TransBack_translations_text_analysis.xlsx")
+data_file <- read_excel("TransBack_translations_text_analysis.xlsx")
 # View(translations_text_analysis)
 
 
@@ -208,14 +204,20 @@ levenshtein_data <- data_file %>% select(post_edit, order_item, item,
                                      starts_with("levenshtein"))
 
 
+levenshtein_long <- melt(levenshtein_data, id.vars = c("post_edit","order_item",
+                                               "item", "scale", "format", 
+                                               "page"), measure.vars = c("levenshtein_P01", "levenshtein_P02", "levenshtein_P03", "levenshtein_P04", 
+                                                                         "levenshtein_P05","levenshtein_P06", "levenshtein_P07", "levenshtein_P08", 
+                                                                         "levenshtein_P09","levenshtein_P10", "levenshtein_P11", "levenshtein_P12", 
+                                                                         "levenshtein_P13","levenshtein_P14", "levenshtein_P15", "levenshtein_P16", 
+                                                                         "levenshtein_P21","levenshtein_P22", "levenshtein_P23", "levenshtein_P24", 
+                                                                         "levenshtein_P25","levenshtein_P26", "levenshtein_P27", "levenshtein_P28", 
+                                                                         "levenshtein_P29","levenshtein_P30", "levenshtein_P31", "levenshtein_P32", 
+                                                                         "levenshtein_P33","levenshtein_P34", "levenshtein_P35", "levenshtein_P36", 
+                                                                         "levenshtein_ChatGPT"))
 
 
 
+ 
 
-
-
-
-
-
-
-
+levenshtein_long %>% filter(post_edit=="T1")

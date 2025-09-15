@@ -15,15 +15,35 @@ library(tidyverse)
 
 all_distance <- read_excel("data/all_distance.xlsx") %>%
   select(translater_label, std_mean_dist, type, scale, ps, expt_group, anony_label) %>%
-  filter(str_starts(type, "deprivation") | str_starts(type, "thrill"))
+  filter(str_starts(type, "deprivation") | str_starts(type, "thrill")) %>%
+  mutate(translater_label= replace(translater_label, translater_label == 'P41_ChatGPT', 'ChatGPT'))
+
 
 ```
 
 
 ```{r}
 
-all_distance <- all_distance %>% filter(translater_label != "official_translation")
+all_distance <- all_distance %>% 
+  filter(translater_label != "official_translation"& translater_label != "EN")%>%
+  mutate(page = case_when(
+    grepl("deprivation", type, ignore.case = TRUE) ~ "deprivation_sensitivity",
+    grepl("thrill", type, ignore.case = TRUE) ~ "thrill_seeking",
+    TRUE ~ NA_character_
+  )) %>% 
+  mutate(expt_group= replace(expt_group, expt_group == 'Others', 'ChatGPT'))
 
+```
+
+
+```{r}
+
+distance <- all_distance %>% 
+  group_by(translater_label, page)%>%
+  summarise(mean_std=mean(std_mean_dist),
+        median_std=median(std_mean_dist),
+        expt_group=first(expt_group))
+  
 ```
 
 
@@ -39,9 +59,143 @@ levenshtein_long <- read_excel("data/levenshtein_long.xlsx")%>%
 
 ```{r}
 
-jaccard_long %>% 
-  group_by(variable)%>%
-  mutate( =first())
+jaccard <- jaccard_long %>% 
+  group_by(variable, page, format)%>%
+  summarise(mean_jac=mean(value),
+        median_jac=median(value))
+
+```
+
+
+```{r}
+
+levenshtein <- levenshtein_long %>% 
+  group_by(variable, page, format)%>%
+  summarise(mean_lev=mean(value, na.rm=T),
+        median_lev=median(value, na.rm=T))
+
+```
+```{r}
+
+dt <-left_join(jaccard, levenshtein)
+dt <-left_join(dt,distance, by=c("variable"="translater_label","page"="page"))
+
+```
+
+
+```{r}
+
+dt %>%
+  group_by(format, page, expt_group) %>%
+  summarise(
+    cor_jac_std = cor(mean_jac, mean_std, use = "complete.obs"),
+    cor_lev_std = cor(mean_lev, mean_std, use = "complete.obs")
+  )
+
+```
+
+
+#### correlation with bootstrap CI (for small sample) 
+```{r}
+
+library(boot)
+
+# --- bootstrap function for correlation ---
+boot_cor <- function(data, indices, var1, var2) {
+  d <- data[indices, ]
+  r <- suppressWarnings(cor(d[[var1]], d[[var2]], use = "complete.obs"))
+  if (is.na(r)) r <- 0
+  return(r)
+}
+
+# --- wrapper for bootstrap + CI ---
+get_boot_ci <- function(data, var1, var2, R = 1000) {
+  if (nrow(data) < 4) {
+    return(tibble(cor = NA_real_, ci_low = NA_real_, ci_high = NA_real_))
+  }
+  b <- boot(data, statistic = boot_cor, R = R, var1 = var1, var2 = var2)
+  ci <- tryCatch(boot.ci(b, type = "perc"), error = function(e) NULL)
+  
+  if (!is.null(ci)) {
+    tibble(
+      cor = mean(b$t, na.rm = TRUE),
+      ci_low = ci$percent[4],
+      ci_high = ci$percent[5]
+    )
+  } else {
+    tibble(cor = NA_real_, ci_low = NA_real_, ci_high = NA_real_)
+  }
+}
+
+# --- run only for social scientists & professional translators ---
+boot_results <- dt %>%
+  filter(expt_group %in% c("Professional Translator", "Social Scientist")) %>%
+  group_by(format, page, expt_group) %>%
+  group_modify(~ bind_rows(
+    get_boot_ci(.x, "mean_jac", "mean_std") %>% mutate(metric = "jac_std"),
+    get_boot_ci(.x, "mean_lev", "mean_std") %>% mutate(metric = "lev_std")
+  )) %>%
+  ungroup()
+
+
+```
+
+
+##### results are not robust
+
+```{r}
+
+boot_results
+
+```
+
+
+```{r, fig.height=6, fig.width=9}
+
+ggplot(dt, aes(x = mean_jac, y = mean_std, color = expt_group)) +
+  geom_point(alpha=0.4, size=2) +
+  geom_smooth(method = "lm", se = T, alpha = .10, fullrange = TRUE,  size=0.4) +
+  facet_grid(page ~ format) +
+  labs(title = "Correlation: mean_jac vs mean_std") +
+  theme_bw()+
+  scale_y_reverse() + ylim(c(0.75, 0)) 
+
+```
+
+```{r, fig.height=6, fig.width=9}
+
+ggplot(dt, aes(x = mean_lev, y = mean_std, color = expt_group)) +
+  geom_point(alpha=0.4, size=2) +
+  geom_smooth(method = "lm", se = T, alpha = .10, fullrange = TRUE,  size=0.4) +
+  facet_grid(page ~ format) +
+  labs(title = "Correlation: mean_lev vs mean_std") +
+  theme_bw()+
+  scale_y_reverse() + ylim(c(1, 0)) 
+
+```
+```{r}
+
+
+```
+
+> Jaccard / Levenshtein are surface-level text similarity measures.
+
+> They might not capture semantic equivalence or pragmatic meaning.
+
+> A translation can be very close word-wise but still shift the interpretation of the question → affecting responses.
+
+> professional translator tend to capture the semantic part (PT: although similarity is low, but won't necessary to be bad influence on the responses)
+
+> ChatGPt and Social scientists (without profesisonal training) may focus on the surface-level text and structure 
+
+> Surface closeness (Jaccard/Levenshtein) doesn’t guarantee survey quality.
+
+> ChatGPT performs like a “middle-performing” translator: not terrible (middle to good), but not consistently better.
+
+> Some Professional translators sometimes deviate lexically but preserve meaning, which leads to better data quality  than some with literal closeness.
+
+
+```{r}
 
 
 ```
@@ -49,34 +203,39 @@ jaccard_long %>%
 
 ```{r}
 
-```
-
-
-```{r}
 
 ```
 
 
 ```{r}
 
-```
-
-```{r}
 
 ```
 
 ```{r}
 
+
 ```
+
 
 ```{r}
 
+
 ```
+
 
 ```{r}
 
+
 ```
+
 
 ```{r}
 
+
 ```
+
+
+
+
+
